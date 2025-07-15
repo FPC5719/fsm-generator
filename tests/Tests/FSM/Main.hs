@@ -1,12 +1,10 @@
-module FSM.FSM where
+module Tests.FSM.Main where
 
 import Clash.Prelude
 import FSM.Model
 import FSM.TH
 
-transitionFSM "small"
-  [t| () |] [t| Int |] [t| Int |]
-  () smallTransition
+import Tests.FSM.Definition
 
 transitionFSM "test"
   [t| () |] [t| Int |] [t| Int |]

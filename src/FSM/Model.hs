@@ -1,36 +1,31 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TemplateHaskell #-}
 
+{-|
+This module contains two levels of abstraction:
+
+[@FSM@]:
+  Provides syntax structures for writing FSMs.
+[@Transition@]:
+  Is the inner transition graph derived from @FSM@,
+  and is used for generating actual logic.
+-}
 module FSM.Model where
 
 import Prelude
 import Control.Applicative
-import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Language.Haskell.TH
 
-
+-- | A singleton captures the behavior at a specific state.
 type Singleton r i o = Code Q (i -> State  r o)
+-- | A predicate determines whether to change state.
 type Predicate r i   = Code Q (i -> Reader r Bool)
 
-truePred :: Predicate r i
-truePred = [|| const $ pure True ||]
-
-falsePred :: Predicate r i
-falsePred = [|| const $ pure False ||]
-
-andPred :: Predicate r i -> Predicate r i -> Predicate r i
-andPred p q = [|| (liftA2 . liftA2 $ (&&)) $$p $$q ||]
-
-orPred :: Predicate r i -> Predicate r i -> Predicate r i
-orPred p q = [|| (liftA2 . liftA2 $ (||)) $$p $$q ||]
-
-notPred :: Predicate r i -> Predicate r i
-notPred p = [|| (fmap . fmap $ not) $$p ||]
-
+-- | A FSM is a sequence of @Step@s.
 type FSM r i o = [Step r i o]
 
 data Step r i o where
@@ -129,8 +124,30 @@ stepTransition (If p fsm1 fsm2) = Transition
 getTransition :: FSM r i o -> Transition r i o
 getTransition = mconcat . fmap stepTransition
 
+-- * Other useful definitions
 
--- Matrix Helper
+-- | True predicate.
+truePred :: Predicate r i
+truePred = [|| const $ pure True ||]
+
+-- | False predicate.
+falsePred :: Predicate r i
+falsePred = [|| const $ pure False ||]
+
+-- | Logic and.
+andPred :: Predicate r i -> Predicate r i -> Predicate r i
+andPred p q = [|| (liftA2 . liftA2 $ (&&)) $$p $$q ||]
+
+-- | Logic or.
+orPred :: Predicate r i -> Predicate r i -> Predicate r i
+orPred p q = [|| (liftA2 . liftA2 $ (||)) $$p $$q ||]
+
+-- | Logic not.
+notPred :: Predicate r i -> Predicate r i
+notPred p = [|| (fmap . fmap $ not) $$p ||]
+
+-- * Matrix helpers
+
 divmat
   :: Vector (Vector a)
   -> (a, Vector a, Vector a, Vector (Vector a))
@@ -164,65 +181,3 @@ concat9 m11 m12 m13 m21 m22 m23 m31 m32 m33 = concat3
   (V.zipWith3 concat3 (pure  $ pure m11) (pure m12) (pure m13))
   (V.zipWith3 concat3 (pure <$>     m21) (     m22) (     m23))
   (V.zipWith3 concat3 (pure <$>     m31) (     m32) (     m33))
-
--- TEST
-
-debugTransition :: Transition r i o -> IO ()
-debugTransition Transition{ count = n, vertex = v, edge = e } = do
-  putStrLn $ "N  = " ++ show n
-  putStrLn $ "NV = " ++ show (length v)
-  putStrLn $ "NE = " ++ show (length e)
-  forM_ e $ \ei -> do
-    s <- fmap V.toList . forM ei $ \case
-      Nothing -> pure '.'
-      Just _  -> pure '1'
-    putStrLn s
-  
-
-testFSM :: FSM () Int Int
-testFSM =
-  [ Until truePred
-    [ Node $ [|| \_ -> pure 1 ||] ]
-  , Node $ [|| \_ -> pure 2 ||]
-  , If truePred
-    [ Node $ [|| \_ -> pure 3 ||]
-    , Node $ [|| \_ -> pure 4 ||] ]
-    []
-  , Node $ [|| \_ -> pure 5 ||]
-  ]
-
-testTransition :: Transition () Int Int
-testTransition = getTransition testFSM
-
-smallFSM :: FSM () Int Int
-smallFSM =
-  [ Node $ [|| \_ -> pure 1 ||]
-  , Node $ [|| \_ -> pure 2 ||]
-  ]
-
-smallTransition :: Transition () Int Int
-smallTransition = getTransition smallFSM
-
-testIO :: IO ()
-testIO = do
-  let t = testTransition
-  {-
-  let t = getTransition $
-        [ If truePred
-          [ Node $ \_ -> pure 1
-          , Node $ \_ -> pure 2
-          ]
-          []
-        , Node $ \_ -> pure (3 :: Int)
-        ]
-  --}
-  print $ count t
-  putStrLn "Vertex:"
-  let v = vertex t
-  print $ V.length v
-  putStrLn "Edge:"
-  let e = edge t
-  print $ V.length e
-  V.iforM_ e $ \i ei -> do
-    V.iforM_ ei $ \j ej -> do
-      print (i, j, () <$ ej)
