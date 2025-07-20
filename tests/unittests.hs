@@ -1,10 +1,8 @@
 import Prelude
 
-import Test.Tasty
-
--- import qualified Tests.Example.Project
+import Tests.FSM.Main
 
 main :: IO ()
-main = defaultMain $ testGroup "."
-  [ -- Tests.Example.Project.accumTests
-  ]
+main = do
+  testDebug
+  print testOutput

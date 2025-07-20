@@ -74,6 +74,7 @@ common common-options
     base,
     Cabal,
     mtl,
+    lens,
     vector,
     template-haskell,
 

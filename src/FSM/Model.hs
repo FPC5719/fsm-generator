@@ -10,7 +10,17 @@ This module contains two levels of abstraction:
   Is the inner transition graph derived from @FSM@,
   and is used for generating actual logic.
 -}
-module FSM.Model where
+module FSM.Model
+  ( -- * FSM
+    Singleton, Predicate
+  , FSM, Step(..)
+    -- * Transition
+  , Transition(..)
+  , getTransition
+    -- * Helper definitions
+  , truePred, falsePred
+  , andPred, orPred, notPred
+  ) where
 
 import Prelude
 import Control.Applicative
@@ -25,21 +35,30 @@ type Singleton r i o = Code Q (i -> State  r o)
 -- | A predicate determines whether to change state.
 type Predicate r i   = Code Q (i -> Reader r Bool)
 
--- | A FSM is a sequence of @Step@s.
+-- | A FSM is a sequence of steps.
 type FSM r i o = [Step r i o]
 
+-- | A single step in FSM.
+--
+-- With @Until@ and @If@, more complicated control flows can
+-- be composed.
 data Step r i o where
+  -- | @Node@s correspond to states.
   Node  :: Singleton r i o -> Step r i o
+  -- | @Until@ executes the sub @FSM@ until the @Predicate@ is true.
   Until :: Predicate r i -> FSM r i o -> Step r i o
+  -- | @If@ dispatches between two @FSM@s based on the @Predicate@.
   If    :: Predicate r i -> FSM r i o -> FSM r i o -> Step r i o
 
 
+-- | The transition graph of FSM.
 data Transition r i o = Transition
   { count  :: Int
   , vertex :: Vector (Singleton r i o)
   , edge   :: Vector (Vector (Maybe (Predicate r i)))
   }
 
+-- | Sequentially combine two transitions.
 instance Semigroup (Transition r i o) where
   t1 <> t2 = Transition
     { count  = count  t1 +    count t2
@@ -58,6 +77,7 @@ instance Semigroup (Transition r i o) where
          border4 dummy   bulk2
     }
 
+-- | Same as @Semigroup@ with sequential unit.
 instance Monoid (Transition r i o) where
   mempty = Transition
     { count  = 0
@@ -67,6 +87,7 @@ instance Monoid (Transition r i o) where
   mappend = (<>)
 
 
+-- | Get transition from a single step.
 stepTransition :: Step r i o -> Transition r i o
 stepTransition (Node s) = Transition
   { count  = 1
@@ -121,10 +142,9 @@ stepTransition (If p fsm1 fsm2) = Transition
     t1 = getTransition fsm1
     t2 = getTransition fsm2
 
+-- | Get transition from a FSM.
 getTransition :: FSM r i o -> Transition r i o
 getTransition = mconcat . fmap stepTransition
-
--- * Other useful definitions
 
 -- | True predicate.
 truePred :: Predicate r i

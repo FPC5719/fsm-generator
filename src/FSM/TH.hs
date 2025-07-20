@@ -1,12 +1,18 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+{-|
+This module provides Template Haskell functions to
+generate actual logic code based on FSM desciptions.
+-}
+
 module FSM.TH where
 
 import Prelude
 import qualified Clash.Prelude as CP
 import Language.Haskell.TH
 
+import Control.Applicative
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import qualified Data.Vector as V
@@ -14,8 +20,8 @@ import FSM.Model
 
 -- | Generate the logic of a singleton.
 --
--- The result @ExpQ@ has type
--- @(r, BitVector n) -> i -> ((r, BitVector n), o)@.
+-- The result @`ExpQ`@ has type
+-- @(r, `CP.BitVector` n) -> i -> Maybe ((r, `CP.BitVector` n), o)@.
 -- However, since @n@ is not available at type checking,
 -- typed quotation is not possible.
 combineNode
@@ -26,9 +32,6 @@ combineNode
   -- ^ Edges associated with current vertex
   -> ExpQ
 combineNode n k v e = do
-  if V.length e /= n + 1
-    then error "Impossible: Bad array length!"
-    else pure ()
   let bvty = [t| CP.BitVector $(litT . numTyLit . toInteger $ n) |]
   let vfnexp :: ExpQ -- i -> r -> (o, r)
       vfnexp = [| \i r -> runState ($(unTypeCode v) i) r |]
@@ -41,14 +44,16 @@ combineNode n k v e = do
                    then setBit (0 :: $bvty) l
                    else $(go ps) i r
                |]
-        go [ (idx, ei) | (idx, Just ei) <- V.toList $ V.indexed e ]
+        go [ (idx, ei)
+           | (idx, Just ei) <- V.toList . V.indexed . V.tail $ e
+           ]
   let kexp = [| k |]
   [| \(r, bv) i ->
        let (o, r') = $vfnexp i r
            bv'     = $efnexp i r
-       in if testBit bv $kexp
-          then ((r', bv'), o)
-          else unpack 0
+       in if testBit bv ($kexp - 1)
+          then Just ((r', bv'), o)
+          else Nothing
    |]
 
 
@@ -56,6 +61,20 @@ combineNode n k v e = do
 --
 -- Must manually pass through the quotation of types to help
 -- with type inference.
+--
+-- Example:
+--
+-- Given @testFSM :: `FSM` r i o@ where @r@, @i@, @o@ are types
+-- known at compile time, the following top-level slice:
+--
+-- @
+-- `transitionFSM` "test"
+--   [t| r |] [t| i |] [t| o |]
+--   initialState (`getTransition` testFSM)
+-- @
+--
+-- would generate a top-level definition @test@ with the type
+-- @`CP.HiddenClockResetEnable` dom => `CP.Signal` dom i -> `CP.Signal` dom o@.
 transitionFSM
   :: (CP.Lift r, CP.BitPack r, CP.BitPack o)
   => String
@@ -72,17 +91,18 @@ transitionFSM name tr ti to r0 t = do
   let exps =
         [ [| $(combineNode n idx
                 (vertex t V.! (idx - 1)) (edge t V.! idx)
-              ) :: ($tr, $bvty) -> $ti -> (($tr, $bvty), $to)
+              ) :: ($tr, $bvty) -> $ti -> Maybe (($tr, $bvty), $to)
            |]
         | idx <- [1 .. n]
         ]
-  -- Exactly one vertex is enable
+  -- Exactly one state is enabled
   let st =
-        [| \(r, bv) i -> CP.unpack
-          $(foldl1
-             (\u v -> [| $u CP..|. $v |])
-             ((\f -> [| CP.pack ($f (r, bv) i) |]) <$> exps)
-           )
+        [| \(r, bv) i -> case
+            $(foldl1
+              (\u v -> [| $u <|> $v |])
+              ((\f -> [| $f (r, bv) i |]) <$> exps)
+             )
+            of Just x -> x
          |]
   -- `foo` is a temporary name
   [sig, dec] <-
