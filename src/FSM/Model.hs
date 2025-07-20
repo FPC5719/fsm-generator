@@ -40,8 +40,10 @@ type FSM r i o = [Step r i o]
 
 -- | A single step in FSM.
 --
--- With @Until@ and @If@, more complicated control flows can
+-- With @`Until`@ and @`If`@, more complicated control flows can
 -- be composed.
+--
+-- _Note_: The predicate of @`Until`@ is checked after the loop body!
 data Step r i o where
   -- | @Node@s correspond to states.
   Node  :: Singleton r i o -> Step r i o
@@ -77,7 +79,7 @@ instance Semigroup (Transition r i o) where
          border4 dummy   bulk2
     }
 
--- | Same as @Semigroup@ with sequential unit.
+-- | Same as @`Semigroup`@, but with sequential unit.
 instance Monoid (Transition r i o) where
   mempty = Transition
     { count  = 0
@@ -87,7 +89,7 @@ instance Monoid (Transition r i o) where
   mappend = (<>)
 
 
--- | Get transition from a single step.
+-- | Get transition from a single @`Step`@.
 stepTransition :: Step r i o -> Transition r i o
 stepTransition (Node s) = Transition
   { count  = 1
@@ -105,11 +107,11 @@ stepTransition (Until p fsm) = Transition
         pp      = Just p
         np      = Just (notPred p)
         arrout  = liftA2 andPred pp <$> border2
-        arrin   = liftA2 andPred np <$> border1
+        mult    = (<$> border2) $ (<$> border1) . liftA2 andPred
+        mult2   = (fmap . fmap $ liftA2 andPred np) mult
+        zipWith2D f = V.zipWith (V.zipWith f)
         liftAlt f x y = x <|> y <|> liftA2 f x y
-        bulk2   = V.zipWith
-          (maybe id (const $ V.zipWith (liftAlt orPred) arrin))
-          arrout bulk1
+        bulk2   = zipWith2D (liftAlt orPred) bulk1 mult2
     in concat4
        corner1 border1
        arrout  bulk2
@@ -142,7 +144,7 @@ stepTransition (If p fsm1 fsm2) = Transition
     t1 = getTransition fsm1
     t2 = getTransition fsm2
 
--- | Get transition from a FSM.
+-- | Get transition from a @`FSM`@.
 getTransition :: FSM r i o -> Transition r i o
 getTransition = mconcat . fmap stepTransition
 
@@ -166,7 +168,9 @@ orPred p q = [|| (liftA2 . liftA2 $ (||)) $$p $$q ||]
 notPred :: Predicate r i -> Predicate r i
 notPred p = [|| (fmap . fmap $ not) $$p ||]
 
--- * Matrix helpers
+
+
+-- Matrix Helpers
 
 divmat
   :: Vector (Vector a)

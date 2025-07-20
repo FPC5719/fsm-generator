@@ -17,7 +17,7 @@ transitionFSM "mini"
   varInit (getTransition miniFSM)
 
 testOutput :: [Maybe Value]
-testOutput = sampleN @System 100 $ mini (pure ())
+testOutput = sampleN @System 500 $ prime (pure ())
 
 testDebug :: IO ()
 testDebug = do
@@ -25,4 +25,9 @@ testDebug = do
   print $ count t
   print $ V.length (vertex t)
   print $ V.length (edge t)
-
+  V.forM_ (edge t) $ \ei -> do
+    s <- V.forM ei $ \ej -> do
+      case ej of
+        Just _ -> pure 'X'
+        Nothing -> pure '.'
+    putStrLn $ V.toList s

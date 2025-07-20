@@ -18,18 +18,18 @@ data Vars = Vars
 makeLenses ''Vars
 
 varInit :: Vars
-varInit = Vars 2 0 0 True
+varInit = Vars 1 0 0 True
 
 primeFSM :: FSM Vars () (Maybe Value)
 primeFSM =
-  [ Until falsePred -- Infinite loop
-    [ Node  [|| \_ -> (do { i %= (+ 1); j .= 2; f .= True; pure Nothing }) ||]
-    , Until [|| \_ -> (do { v <- ask; pure (v ^. f || v ^. j == v ^. i)}) ||]
-      [ Node  [|| \_ -> (do { use j >>= (k .=); pure Nothing }) ||]
-      , Until [|| \_ -> (do { v <- ask; pure (v ^. k <= 0) }) ||]
-        [ Node  [|| \_ -> (do { use j >>= (k %=). subtract; pure Nothing }) ||]
+  [ Until falsePred
+    [ Node  [|| \_ -> (do { i += 1; j .= 1; f .= True; pure Nothing }) ||]
+    , Until [|| \_ -> (do { v <- ask; pure (not (v ^. f) || v ^. j == v ^. i)}) ||]
+      [ Node  [|| \_ -> (do { j += 1; (k .=) =<< use i; pure Nothing }) ||]
+      , Until [|| \_ -> (do { (0 >=) <$> view k }) ||]
+        [ Node  [|| \_ -> (do { (k -=) =<< use j; pure Nothing }) ||]
         ]
-      , If    [|| \_ -> (do { v <- ask; pure (v ^. k == 0) }) ||]
+      , If    [|| \_ -> (do { (0 ==) <$> view k }) ||]
         [ Node  [|| \_ -> (do { f .= False; pure Nothing }) ||]
         ]
         []
@@ -41,12 +41,17 @@ primeFSM =
     ]
   ]
 
+
 miniFSM :: FSM Vars () (Maybe Value)
 miniFSM =
   [ Until falsePred
-    [ Node  [|| \_ -> (do { i .= 10; pure (Just 233) }) ||]
+    [ Node  [|| \_ -> (do { i .= 10; pure $ Just 233 }) ||]
     , Until [|| \_ -> (do { v <- ask; pure (v ^. i == 0) }) ||]
-      [ Node  [|| \_ -> (do { i %= (subtract 1); Just <$> use i } ) ||]]
+      [ Node  [|| \_ -> (do { ii <- use i; i .= ii - 1; pure $ Just ii } ) ||]
+      , If    [|| \_ -> (do { (== 0) . (`mod` 3) <$> view i } ) ||]
+        [ Node  [|| \_ -> (do { pure $ Just 666 } ) ||]
+        ]
+        []
+      ]
     ]
   ]
-

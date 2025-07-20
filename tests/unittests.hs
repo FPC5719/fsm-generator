@@ -4,5 +4,5 @@ import Tests.FSM.Main
 
 main :: IO ()
 main = do
-  testDebug
+  -- testDebug
   print testOutput
